@@ -40,6 +40,21 @@ def getBoundingBoxLatLon(nodes):
 	return minlat, minlon, maxlat, maxlon
 
 
+# function to get the relation fairways
+
+def getOSMGolfRelationWays(ids):
+
+	op = overpy.Overpass()
+
+	# use the coordinate string to pull the data through Overpass - golf holes only
+	try:
+		query = "(way(id:" + ','.join(str(id) for id in ids) + "););out;"
+		return op.query(query)
+
+
+	except overpy.exception.OverPyException as e:
+		print('OpenStreetMap servers are too busy right now.  Try running this tool later.)
+		return None
 
 # function to get the golf holes contained within a given bounding box
 
@@ -72,7 +87,7 @@ def getOSMGolfData(bottom_lat, left_lon, top_lat, right_lon, printf=print):
 	# use the coordinate string to pull the data through Overpass
 	# we want all golf ways, with some additions for woods, trees, and water hazards
 	try:
-		query = "(way['golf'](" + coord_string + ");way['natural'='wood'](" + coord_string + ");node['natural'='tree'](" + coord_string + ");way['landuse'='forest'](" + coord_string + ");way['natural'='water'](" + coord_string + "););out;"
+		query = "(relation['golf'='fairway'](" + coord_string + ");way['golf'](" + coord_string + ");way['natural'='wood'](" + coord_string + ");node['natural'='tree'](" + coord_string + ");way['landuse'='forest'](" + coord_string + ");way['natural'='water'](" + coord_string + "););out;"
 
 		return op.query(query)
 
@@ -234,7 +249,7 @@ def identifyGreen(hole_way_nodes, hole_result):
 
 def translateWaytoNP(way, hole_minlat, hole_minlon, hole_maxlat, hole_maxlon, x_dim, y_dim):
 	#
-	# print("getting nodes for: ", way.tags.get("golf", None))
+	print("getting nodes for: ", way.tags.get("golf", None))
 
 
 	# convert each coordinate's location within the bounding box to a pixel location
@@ -303,7 +318,23 @@ def categorizeWays(hole_result, hole_minlat, hole_minlon, hole_maxlat, hole_maxl
 
 	print("Categorizing ways...")
 
-	for way in hole_result.ways:
+	# Hack to get all the ids for the fairways that are relations and not ways
+	# Then get the ways and add the tag for golf=fairway
+	relation_way_refs = []
+	for relation in hole_result.relations:
+		for member in relation.members:
+			if member.role == 'outer':
+				relation_way_refs.append(member.ref)
+
+	relation_ways = getOSMGolfRelationWays(relation_way_refs)
+
+	for rway in relation_ways.ways:
+		rway.tags['golf'] = "fairway"
+
+	all_ways = hole_result.ways + relation_ways.ways
+	print("All Ways count %s" % (len(all_ways)))
+
+	for way in all_ways:
 
 		# see how each object was tagged in OSM (and do a little extra categorizing for
 		# water hazards and woods)
